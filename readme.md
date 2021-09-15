@@ -67,6 +67,7 @@ lein new luminus guestbook --template-version 3.91 -- +h2 +http-kit
 en guestbook/env/dev/clj/user.clj vive el namespace de user, ahi hay funciones utiles
 
 con esto cambiamos al ns del usuario para iniciar a migrar
+
 ```clj
 (in-ns 'guestbook.user);si no jala regresar con (in-ns 'user)
 (start);inicia la conexion con la db
@@ -124,4 +125,187 @@ cambiar de ns y recargar las funciones sql creadas
 (get-messages)
 (save-message! {:name "bob" :message "hii"})
  ```
- 
+
+ y agregamos en los tests
+
+ ```clj
+ (deftest test-messages
+  (jdbc/with-transaction [t-conn *db* {:rollback-only true}]
+    (is (= 1 (db/save-message!
+              t-conn
+              {:name "Bob"
+               :message "Hello, World"}
+              {:connection t-conn})))
+    (is (= {:name "Bob"
+            :message "Hello, World"}
+           (-> (db/get-messages t-conn {})
+               (first)
+               (select-keys [:name :message]))))))
+               ```
+
+corremos los tests con 
+
+lein test
+lein test-refresh
+
+
+los templates son iguales que en Django, los Views de django son como los routes de Luminus
+
+al parecer cuando corres un server no es posible imprimir en consola... pero si usar logging
+
+```clj
+(ns guestbook.routes.home
+  (:require
+   ...
+   [clojure.tools.logging :as log]))
+```
+
+en el routes se agrega la logica
+
+```clj
+(ns guestbook.routes.home
+  (:require
+   [guestbook.layout :as layout]
+   [guestbook.db.core :as db]
+  ;;  [clojure.java.io :as io]
+   [guestbook.middleware :as middleware]
+   [ring.util.response]
+   [ring.util.http-response :as response]
+   [struct.core :as st]
+   [clojure.tools.logging :as log]))
+
+(defn home-page [{:keys [flash] :as request}]
+  ;; (layout/render request "home.html" {:docs (-> "docs/docs.md" io/resource slurp)}))
+;; asi se debugguea informacion
+  (log/info (db/get-messages))
+  (layout/render request "home.html"
+                 (merge {:messages (db/get-messages)}
+                ;;  los mensajes flash son para indicar errores, es como el paso de contextos
+                        (select-keys flash [:name :message :errors]))))
+
+(def message-schema
+;; es el filtro para la validacion de mensajes
+  [[:name
+    st/required
+    st/string]
+   [:message
+    st/required
+    st/string
+    {:message "message debe tener minimo  10 caracteres"
+     :validate (fn [msg] (>= (count msg) 10))}]])
+
+(defn validate-message [params]
+  ;; (print (first (st/validate params message-schema)))
+;;   llama a la funcion
+  (first (st/validate params message-schema)))
+
+
+(defn save-message! [{:keys [params]}]
+  (if-let [errors (validate-message params)]
+;;   si hay errores envia una flash session, vive solo en ese momento para el paso de mensajes
+
+    (-> (response/found "/")
+        (assoc :flash (assoc params :errors errors)))
+    (do
+    ;; si no hay errores guarda en la db y regresa la pagina inicial
+      (db/save-message! params)
+      (response/found "/"))))
+
+(defn about-page [request]
+  (layout/render request "about.html"))
+
+
+
+(defn home-routes []
+  [""
+   {:middleware [middleware/wrap-csrf
+                 middleware/wrap-formats]}
+    ;;aqui se agregan las rutas  
+   ["/" {:get home-page}]
+   ["/about" {:get about-page}]
+   ["/message" {:post save-message!}]])
+```
+
+la plantilla del home es similar a Jinja2
+
+```html
+{% extends "base.html" %}
+{% block content %}
+<div class="content">
+  <div class="columns is-centered">
+    <div class="column is-two-thirds">
+      <!-- Content -->
+      <div class="columns">
+        <div class="column">
+          <h3>Messages</h3>
+          <ul class="messages">
+            {% for item in messages %}
+            <li>
+              <time>
+                {{item.timestamp }}
+                <!--  |date:"yyyy-MM-dd HH:mm:ss"}} por alguna razon no evalua el filtro -->
+              </time>
+              <p>{{item.message}}</p>
+              <p>- {{item.name}}</p>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="columns">
+          <div class="column">
+          <form method="POST" action="/message">
+          {% csrf-field %}
+          <div class="field">
+          <label class="label" for="name">
+          Name
+          </label>
+          {% if errors.name %}
+          <div class="notification is-danger">
+          {{errors.name|join}}
+          </div>
+          {% endif %}
+          <input class="input"
+          type="text"
+          name="name"
+          value="{{name}}" />
+          </div>
+          <div class="field">
+          <label class="label" for="message">
+          Message
+          </label>
+          {% if errors.message %}
+          <div class="notification is-danger">
+          {{errors.message|join}}
+          </div>
+          {% endif %}
+          <textarea
+          class="textarea"
+          name="message">{{message}}</textarea>
+          </div>
+          <input type="submit"
+          class="button is-primary"
+          value="comment" />
+          </form>
+          </div>
+          </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+```
+
+crear el .jar
+
+```sh
+lein uberjar
+```
+
+en el dev-config.edn estan las variables que se ejecutan en el server, hay que pasar la de la db al entorno del SO y correr
+
+```sh
+export DATABASE_URL="jdbc:sqlite:guestbook_dev.db"
+
+java -jar target/uberjar/guestbook.jar
+```
