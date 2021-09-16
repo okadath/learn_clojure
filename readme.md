@@ -309,3 +309,26 @@ export DATABASE_URL="jdbc:sqlite:guestbook_dev.db"
 
 java -jar target/uberjar/guestbook.jar
 ```
+
+## ClojureScript
+
+```clj
+lein new figwheel figwheel-project
+lein  figwheel ; correr con
+```
+
+crear en resources un html
+
+```html
+<html>
+<body>
+    <script src="js/compiled/figwheel_project.js" type="text/javascript"></script>
+</body>
+</html>
+
+```
+
+```clj
+;; en la consola podemos correr codigo que se vera en las paginas que cargue el js
+(js/alert "Hi from Figwheel Again!")
+```
