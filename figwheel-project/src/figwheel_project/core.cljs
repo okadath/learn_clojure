@@ -17,4 +17,11 @@
 ; )
 
 (ns figwheel-project.core)
-(js/alert "Hello from Figwheel backend!")
+(def inc2 (fn [x] (+ x 1)))
+(js/alert (str (type "A String")))
+(js/alert (inc2 9))
+(js/console.log "I am a side effect")
+(js/console.log (str(type "A String")))
+(js/alert (type nil))
+(js/alert (first (quote (+ 1 2))))
+(js/alert {:name "David" :age 28})
